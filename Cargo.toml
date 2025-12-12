@@ -1,0 +1,88 @@
+[package]
+name = "email-sync"
+version = "0.1.0"
+edition = "2021"
+description = "Async IMAP email client for monitoring and pattern matching"
+license = "MIT"
+repository = "https://github.com/yourorg/email-sync"
+keywords = ["imap", "email", "async", "tokio"]
+categories = ["email", "asynchronous", "network-programming"]
+
+[features]
+default = []
+# Enable OpenTelemetry instrumentation
+observability = ["dep:tracing-opentelemetry", "dep:opentelemetry"]
+# Enable integration tests (requires real IMAP server)
+integration-tests = []
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.44", features = ["net", "time", "sync", "rt"] }
+futures = "0.3"
+
+# IMAP
+async-imap = { version = "0.10", default-features = false, features = ["runtime-tokio"] }
+
+# TLS
+rustls = "0.21"
+tokio-rustls = "0.24"
+webpki-roots = "0.25"
+
+# SOCKS5 proxy
+tokio-socks = "0.5"
+
+# Email parsing
+mailparse = "0.16"
+
+# Pattern matching
+regex = "1.11"
+
+# Date/time
+chrono = "0.4"
+
+# Error handling
+thiserror = "1.0"
+
+# Validation & Security
+secrecy = "0.10"
+email_address = "0.2"
+
+# Tracing (always available, spans are no-op without subscriber)
+tracing = "0.1"
+
+# Observability (optional)
+tracing-opentelemetry = { version = "0.31", optional = true }
+opentelemetry = { version = "0.30", optional = true }
+
+# Utils
+once_cell = "1.21"
+
+[dev-dependencies]
+tokio = { version = "1.44", features = ["full", "test-util"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dotenvy = "0.15.7"
+
+# Examples
+[[example]]
+name = "basic_otp"
+path = "examples/basic_otp.rs"
+
+[[example]]
+name = "find_recent"
+path = "examples/find_recent.rs"
+
+[[example]]
+name = "custom_matcher"
+path = "examples/custom_matcher.rs"
+
+[[example]]
+name = "with_proxy"
+path = "examples/with_proxy.rs"
+
+[[example]]
+name = "with_tracing"
+path = "examples/with_tracing.rs"
+
+[[example]]
+name = "error_handling"
+path = "examples/error_handling.rs"
