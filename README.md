@@ -20,7 +20,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-email-sync = { git = "https://github.com/rlgrpe/email-sync.git", tag = "v.0.1.0" }
+email-sync = { git = "https://github.com/rlgrpe/email-sync.git", tag = "v0.1.0" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 
@@ -242,7 +242,7 @@ For unlisted providers, set `imap_host` explicitly or the library defaults to `i
 
 ```toml
 [dependencies]
-email-sync = { git = "https://github.com/rlgrpe/email-sync.git", tag = "v.0.1.0", features = ["observability"] }
+email-sync = { git = "https://github.com/rlgrpe/email-sync.git", tag = "v0.1.0", features = ["observability"] }
 ```
 
 | Feature         | Description                                               |
