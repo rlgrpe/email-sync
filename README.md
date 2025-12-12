@@ -276,7 +276,7 @@ cargo test
 # Integration tests (requires real IMAP server)
 export EMAIL_SYNC_TEST_EMAIL="your@email.com"
 export EMAIL_SYNC_TEST_PASSWORD="your-app-password"
-cargo test --features integration-tests -- --ignored
+cargo test -- --ignored
 ```
 
 ## License

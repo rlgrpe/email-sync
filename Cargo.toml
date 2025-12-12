@@ -12,8 +12,6 @@ categories = ["email", "asynchronous", "network-programming"]
 default = []
 # Enable OpenTelemetry instrumentation
 observability = ["dep:tracing-opentelemetry", "dep:opentelemetry"]
-# Enable integration tests (requires real IMAP server)
-integration-tests = []
 
 [dependencies]
 # Async runtime

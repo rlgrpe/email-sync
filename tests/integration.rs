@@ -12,8 +12,8 @@
 //! export EMAIL_SYNC_TEST_PROXY_HOST="proxy.example.com"
 //! export EMAIL_SYNC_TEST_PROXY_PORT="1080"
 //!
-//! # Run with the integration-tests feature
-//! cargo test --features integration-tests -- --ignored
+//! # Run with
+//! cargo test -- --ignored
 //! ```
 
 use email_sync::matcher::{ClosureMatcher, OtpMatcher, RegexMatcher, UrlMatcher};
