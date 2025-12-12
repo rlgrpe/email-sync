@@ -443,6 +443,6 @@ mod tests {
         assert!(!registry.is_empty());
 
         let registry_with_defaults = ServerRegistry::with_defaults();
-        assert!(registry_with_defaults.len() > 0);
+        assert!(!registry_with_defaults.is_empty());
     }
 }

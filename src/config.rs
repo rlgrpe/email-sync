@@ -13,6 +13,7 @@
 //! ```
 
 use crate::error::{Error, Result};
+use crate::known_servers::ServerRegistry;
 use crate::proxy::Socks5Proxy;
 use email_address::EmailAddress;
 use secrecy::{ExposeSecret, SecretString};
@@ -186,6 +187,7 @@ pub struct ImapConfigBuilder {
     proxy: Option<Socks5Proxy>,
     timeouts: Option<TimeoutConfig>,
     polling: Option<PollingConfig>,
+    server_registry: Option<ServerRegistry>,
 }
 
 impl ImapConfigBuilder {
@@ -222,6 +224,34 @@ impl ImapConfigBuilder {
     #[must_use]
     pub fn imap_port(mut self, port: u16) -> Self {
         self.imap_port = Some(port);
+        self
+    }
+
+    /// Sets a custom server registry for IMAP host discovery.
+    ///
+    /// The registry is used during [`build()`](Self::build) to resolve the IMAP host
+    /// if no explicit [`imap_host`](Self::imap_host) is set.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use email_sync::{ImapConfig, ServerRegistry};
+    ///
+    /// let mut registry = ServerRegistry::with_defaults();
+    /// registry.register("mycompany.com", "mail.internal.mycompany.com");
+    ///
+    /// let config = ImapConfig::builder()
+    ///     .email("user@mycompany.com")
+    ///     .password("secret")
+    ///     .server_registry(registry)
+    ///     .build()
+    ///     .expect("valid config");
+    ///
+    /// assert_eq!(config.effective_imap_host(), "mail.internal.mycompany.com");
+    /// ```
+    #[must_use]
+    pub fn server_registry(mut self, registry: ServerRegistry) -> Self {
+        self.server_registry = Some(registry);
         self
     }
 
@@ -299,10 +329,16 @@ impl ImapConfigBuilder {
             message: "password is required".into(),
         })?;
 
+        // Resolve IMAP host: explicit > registry > default discovery
+        let imap_host = self.imap_host.or_else(|| {
+            self.server_registry
+                .map(|registry| registry.discover(email.as_str()).into_owned())
+        });
+
         Ok(ImapConfig {
             email,
             password: SecretString::from(password_raw),
-            imap_host: self.imap_host,
+            imap_host,
             imap_port: self.imap_port.unwrap_or(993),
             proxy: self.proxy,
             timeouts: self.timeouts.unwrap_or_default(),
@@ -391,8 +427,163 @@ mod tests {
             .build()
             .unwrap();
 
-        let debug_str = format!("{:?}", config);
+        let debug_str = format!("{config:?}");
         assert!(!debug_str.contains("super-secret-password"));
         assert!(debug_str.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn test_builder_with_server_registry() {
+        let mut registry = ServerRegistry::new();
+        registry.register("mycompany.com", "mail.internal.mycompany.com");
+
+        let config = ImapConfig::builder()
+            .email("user@mycompany.com")
+            .password("secret")
+            .server_registry(registry)
+            .build()
+            .unwrap();
+
+        assert_eq!(config.effective_imap_host(), "mail.internal.mycompany.com");
+    }
+
+    #[test]
+    fn test_builder_explicit_host_overrides_registry() {
+        let mut registry = ServerRegistry::new();
+        registry.register("mycompany.com", "mail.internal.mycompany.com");
+
+        let config = ImapConfig::builder()
+            .email("user@mycompany.com")
+            .password("secret")
+            .imap_host("custom.host.com")
+            .server_registry(registry)
+            .build()
+            .unwrap();
+
+        // Explicit host takes precedence
+        assert_eq!(config.effective_imap_host(), "custom.host.com");
+    }
+
+    #[test]
+    fn test_builder_registry_with_defaults() {
+        // Registry with defaults should resolve known providers
+        let registry = ServerRegistry::with_defaults();
+
+        let config = ImapConfig::builder()
+            .email("user@gmail.com")
+            .password("secret")
+            .server_registry(registry)
+            .build()
+            .unwrap();
+
+        assert_eq!(config.effective_imap_host(), "imap.gmail.com");
+    }
+
+    #[test]
+    fn test_builder_registry_unknown_domain_fallback() {
+        // Registry should fall back to imap.{domain} for unknown domains
+        let registry = ServerRegistry::with_defaults();
+
+        let config = ImapConfig::builder()
+            .email("user@unknowndomain123.org")
+            .password("secret")
+            .server_registry(registry)
+            .build()
+            .unwrap();
+
+        assert_eq!(config.effective_imap_host(), "imap.unknowndomain123.org");
+    }
+
+    #[test]
+    fn test_builder_empty_registry_fallback() {
+        // Empty registry without defaults should still produce fallback
+        let registry = ServerRegistry::new();
+
+        let config = ImapConfig::builder()
+            .email("user@example.com")
+            .password("secret")
+            .server_registry(registry)
+            .build()
+            .unwrap();
+
+        assert_eq!(config.effective_imap_host(), "imap.example.com");
+    }
+
+    #[test]
+    fn test_builder_registry_case_insensitive() {
+        let mut registry = ServerRegistry::new();
+        registry.register("MyCompany.COM", "mail.mycompany.com");
+
+        let config = ImapConfig::builder()
+            .email("user@MYCOMPANY.com")
+            .password("secret")
+            .server_registry(registry)
+            .build()
+            .unwrap();
+
+        assert_eq!(config.effective_imap_host(), "mail.mycompany.com");
+    }
+
+    #[test]
+    fn test_builder_registry_overrides_builtin() {
+        // Custom mapping should override built-in defaults
+        let mut registry = ServerRegistry::with_defaults();
+        registry.register("gmail.com", "custom-gmail-proxy.internal");
+
+        let config = ImapConfig::builder()
+            .email("user@gmail.com")
+            .password("secret")
+            .server_registry(registry)
+            .build()
+            .unwrap();
+
+        assert_eq!(config.effective_imap_host(), "custom-gmail-proxy.internal");
+    }
+
+    #[test]
+    fn test_builder_no_registry_uses_default_discovery() {
+        // Without registry, should use built-in discover_imap_host
+        let config = ImapConfig::builder()
+            .email("user@gmail.com")
+            .password("secret")
+            .build()
+            .unwrap();
+
+        assert_eq!(config.effective_imap_host(), "imap.gmail.com");
+    }
+
+    #[test]
+    fn test_builder_registry_multiple_domains() {
+        let mut registry = ServerRegistry::new();
+        registry.register_many([
+            ("corp.com", "mail.corp.internal"),
+            ("partner.org", "imap.partner.org"),
+            ("vendor.net", "mail.vendor.net"),
+        ]);
+
+        let config1 = ImapConfig::builder()
+            .email("alice@corp.com")
+            .password("secret")
+            .server_registry(registry.clone())
+            .build()
+            .unwrap();
+
+        let config2 = ImapConfig::builder()
+            .email("bob@partner.org")
+            .password("secret")
+            .server_registry(registry.clone())
+            .build()
+            .unwrap();
+
+        let config3 = ImapConfig::builder()
+            .email("carol@vendor.net")
+            .password("secret")
+            .server_registry(registry)
+            .build()
+            .unwrap();
+
+        assert_eq!(config1.effective_imap_host(), "mail.corp.internal");
+        assert_eq!(config2.effective_imap_host(), "imap.partner.org");
+        assert_eq!(config3.effective_imap_host(), "mail.vendor.net");
     }
 }
