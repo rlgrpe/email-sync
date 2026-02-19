@@ -48,12 +48,26 @@ pub(crate) async fn establish_tls_connection(
         })
 }
 
+/// Returns the crypto provider based on enabled feature flags.
+fn crypto_provider() -> rustls::crypto::CryptoProvider {
+    #[cfg(feature = "tls-ring")]
+    {
+        rustls::crypto::ring::default_provider()
+    }
+    #[cfg(all(feature = "tls-aws-lc-rs", not(feature = "tls-ring")))]
+    {
+        rustls::crypto::aws_lc_rs::default_provider()
+    }
+}
+
 /// Creates a TLS connector with system root certificates.
 fn create_tls_connector() -> TlsConnector {
     let mut root_cert_store = rustls::RootCertStore::empty();
     root_cert_store.extend(TLS_SERVER_ROOTS.iter().cloned());
 
-    let tls_config = ClientConfig::builder()
+    let tls_config = ClientConfig::builder_with_provider(Arc::new(crypto_provider()))
+        .with_safe_default_protocol_versions()
+        .expect("TLS protocol versions are valid")
         .with_root_certificates(root_cert_store)
         .with_no_client_auth();
 

@@ -9,7 +9,10 @@ keywords = ["imap", "email", "async", "tokio"]
 categories = ["email", "asynchronous", "network-programming"]
 
 [features]
-default = []
+default = ["tls-ring"]
+# TLS crypto backend (enable exactly one)
+tls-ring = ["rustls/ring"]
+tls-aws-lc-rs = ["rustls/aws-lc-rs"]
 # Enable OpenTelemetry instrumentation
 observability = ["dep:tracing-opentelemetry", "dep:opentelemetry"]
 
@@ -22,7 +25,7 @@ futures = "0.3"
 async-imap = { version = "0.11", default-features = false, features = ["runtime-tokio"] }
 
 # TLS
-rustls = "0.23"
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "logging"] }
 tokio-rustls = "0.26"
 webpki-roots = "1.0"
 
