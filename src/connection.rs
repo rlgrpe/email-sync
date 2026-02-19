@@ -4,6 +4,7 @@
 
 use crate::error::{Error, Result};
 use crate::proxy::Socks5Proxy;
+use rustls::pki_types::ServerName;
 use rustls::ClientConfig;
 use std::sync::Arc;
 use tokio::net::TcpStream;
@@ -50,16 +51,9 @@ pub(crate) async fn establish_tls_connection(
 /// Creates a TLS connector with system root certificates.
 fn create_tls_connector() -> TlsConnector {
     let mut root_cert_store = rustls::RootCertStore::empty();
-    root_cert_store.add_trust_anchors(TLS_SERVER_ROOTS.iter().map(|ta| {
-        rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
-            ta.subject,
-            ta.spki,
-            ta.name_constraints,
-        )
-    }));
+    root_cert_store.extend(TLS_SERVER_ROOTS.iter().cloned());
 
     let tls_config = ClientConfig::builder()
-        .with_safe_defaults()
         .with_root_certificates(root_cert_store)
         .with_no_client_auth();
 
@@ -67,8 +61,8 @@ fn create_tls_connector() -> TlsConnector {
 }
 
 /// Parses server name for TLS SNI.
-fn parse_server_name(host: &str) -> Result<rustls::ServerName> {
-    rustls::ServerName::try_from(host).map_err(|source| Error::InvalidDnsName {
+fn parse_server_name(host: &str) -> Result<ServerName<'static>> {
+    ServerName::try_from(host.to_owned()).map_err(|source| Error::InvalidDnsName {
         host: host.to_string(),
         source,
     })

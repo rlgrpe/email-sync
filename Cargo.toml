@@ -1,10 +1,10 @@
 [package]
 name = "email-sync"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Async IMAP email client for monitoring and pattern matching"
 license = "MIT"
-repository = "https://github.com/yourorg/email-sync"
+repository = "https://github.com/rlgrpe/email-sync"
 keywords = ["imap", "email", "async", "tokio"]
 categories = ["email", "asynchronous", "network-programming"]
 
@@ -19,12 +19,12 @@ tokio = { version = "1.44", features = ["net", "time", "sync", "rt"] }
 futures = "0.3"
 
 # IMAP
-async-imap = { version = "0.10", default-features = false, features = ["runtime-tokio"] }
+async-imap = { version = "0.11", default-features = false, features = ["runtime-tokio"] }
 
 # TLS
-rustls = "0.21"
-tokio-rustls = "0.24"
-webpki-roots = "0.25"
+rustls = "0.23"
+tokio-rustls = "0.26"
+webpki-roots = "1.0"
 
 # SOCKS5 proxy
 tokio-socks = "0.5"

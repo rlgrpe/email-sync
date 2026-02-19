@@ -573,9 +573,11 @@ impl Drop for ImapEmailClientGuard {
             // Try to get the current tokio runtime handle
             match tokio::runtime::Handle::try_current() {
                 Ok(handle) => {
-                    // We're in an async context, spawn the logout task
+                    // We're in an async context, spawn the logout task.
+                    // Call session.logout() directly to avoid creating a root span
+                    // (spawned tasks don't inherit the parent span context).
                     handle.spawn(async move {
-                        match tokio::time::timeout(logout_timeout, client.logout()).await {
+                        match tokio::time::timeout(logout_timeout, client.session.logout()).await {
                             Ok(Ok(())) => debug!("Client logged out successfully"),
                             Ok(Err(e)) => warn!(error = %e, "Client logout failed"),
                             Err(_) => warn!(

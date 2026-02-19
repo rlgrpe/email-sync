@@ -37,7 +37,7 @@ pub enum Error {
         host: String,
         /// The underlying DNS name error.
         #[source]
-        source: rustls::client::InvalidDnsNameError,
+        source: rustls::pki_types::InvalidDnsNameError,
     },
 
     // ─────────────────────────────────────────────────────────────────────────
