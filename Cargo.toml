@@ -53,7 +53,7 @@ tracing = "0.1"
 
 # Observability (optional)
 tracing-opentelemetry = { version = "0.31", optional = true }
-opentelemetry = { version = "0.30", optional = true }
+opentelemetry = { version = "0.31", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1.44", features = ["full", "test-util"] }
