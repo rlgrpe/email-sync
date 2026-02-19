@@ -4,7 +4,7 @@ version = "0.1.1"
 edition = "2021"
 description = "Async IMAP email client for monitoring and pattern matching"
 license = "MIT"
-repository = "https://github.com/yourorg/email-sync"
+repository = "https://github.com/rlgrpe/email-sync"
 keywords = ["imap", "email", "async", "tokio"]
 categories = ["email", "asynchronous", "network-programming"]
 

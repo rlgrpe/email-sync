@@ -1,5 +1,8 @@
 # email-sync
 
+[![CI](https://github.com/rlgrpe/email-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/rlgrpe/email-sync/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 Async IMAP email client for monitoring mailboxes and extracting content using pattern matching.
 
 > **Disclaimer**: This library is provided as-is. I am not obligated to maintain it, fix bugs, or add features. If you
@@ -20,7 +23,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-email-sync = { git = "https://github.com/rlgrpe/email-sync.git", tag = "v.0.1.0" }
+email-sync = { git = "https://github.com/rlgrpe/email-sync.git", tag = "v0.1.1" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 
@@ -57,23 +60,24 @@ async fn main() -> email_sync::Result<()> {
 
 ```rust
 use email_sync::ImapConfig;
+use std::time::Duration;
 
 // Minimal configuration (IMAP host auto-discovered from email domain)
 let config = ImapConfig::builder()
-.email("user@gmail.com")
-.password("app-password")
-.build() ?;
+    .email("user@gmail.com")
+    .password("app-password")
+    .build()?;
 
 // Full configuration
 let config = ImapConfig::builder()
-.email("user@example.com")
-.password("password")
-.imap_host("mail.example.com")  // Override auto-discovery
-.imap_port(993)
-.connect_timeout(Duration::from_secs(30))
-.poll_interval(Duration::from_secs(2))
-.max_wait(Duration::from_secs(300))
-.build() ?;
+    .email("user@example.com")
+    .password("password")
+    .imap_host("mail.example.com")  // Override auto-discovery
+    .imap_port(993)
+    .connect_timeout(Duration::from_secs(30))
+    .poll_interval(Duration::from_secs(2))
+    .max_wait(Duration::from_secs(300))
+    .build()?;
 ```
 
 ### Pattern Matchers
@@ -105,27 +109,28 @@ let matcher = UrlMatcher::new("example.com");
 use email_sync::matcher::RegexMatcher;
 
 // Extract first capture group
-let matcher = RegexMatcher::new(r"token=([a-f0-9]{32})") ?;
+let matcher = RegexMatcher::new(r"token=([a-f0-9]{32})")?;
 
 // With custom description (shown in logs)
 let matcher = RegexMatcher::with_description(
-r"order[_-]?id[=:]\s*(\d+)",
-"Order ID"
-) ?;
+    r"order[_-]?id[=:]\s*(\d+)",
+    "Order ID"
+)?;
 ```
 
 #### Closure-based Matchers
 
 ```rust
 use email_sync::matcher::ClosureMatcher;
+use std::borrow::Cow;
 
 let matcher = ClosureMatcher::new(
-| text| {
-text.lines()
-.find( | line| line.starts_with("CODE:"))
-.map( | line | line.trim_start_matches("CODE:").trim().to_string())
-},
-"code line extractor"
+    |text| {
+        text.lines()
+            .find(|line| line.starts_with("CODE:"))
+            .map(|line| Cow::Owned(line.trim_start_matches("CODE:").trim().to_string()))
+    },
+    "code line extractor"
 );
 ```
 
@@ -135,10 +140,10 @@ text.lines()
 use std::time::Duration;
 
 // Wait for NEW emails (polls until match or timeout)
-let code = client.wait_for_match( & matcher).await?;
+let code = client.wait_for_match(&matcher).await?;
 
 // Search EXISTING recent emails (no polling)
-let code = client.find_recent_match( & matcher, Duration::from_secs(3600)).await?;
+let code = client.find_recent_match(&matcher, Duration::from_secs(3600)).await?;
 ```
 
 ### SOCKS5 Proxy
@@ -153,10 +158,10 @@ let proxy = Socks5Proxy::new("proxy.example.com", 1080);
 let proxy = Socks5Proxy::with_auth("proxy.example.com", 1080, "user", "pass");
 
 let config = ImapConfig::builder()
-.email("user@gmail.com")
-.password("app-password")
-.proxy(proxy)
-.build() ?;
+    .email("user@gmail.com")
+    .password("app-password")
+    .proxy(proxy)
+    .build()?;
 ```
 
 ### RAII Guard for Automatic Cleanup
@@ -165,7 +170,7 @@ let config = ImapConfig::builder()
 let client = ImapEmailClient::connect(config).await?;
 let mut guard = client.into_guard();  // Will logout on drop
 
-let code = guard.wait_for_match( & OtpMatcher::six_digit()).await?;
+let code = guard.wait_for_match(&OtpMatcher::six_digit()).await?;
 // Guard automatically logs out when dropped, even on early return or panic
 ```
 
@@ -174,26 +179,26 @@ let code = guard.wait_for_match( & OtpMatcher::six_digit()).await?;
 ```rust
 use email_sync::{Error, ErrorCategory};
 
-match client.wait_for_match( & matcher).await {
-Ok(code) => println!("Found: {}", code),
-Err(e) => {
-// Check if error is transient (can retry)
-if e.is_retryable() {
-println ! ("Transient error, retrying: {}", e);
-} else {
-println ! ("Permanent error: {}", e);
-}
+match client.wait_for_match(&matcher).await {
+    Ok(code) => println!("Found: {}", code),
+    Err(e) => {
+        // Check if error is transient (can retry)
+        if e.is_retryable() {
+            println!("Transient error, retrying: {}", e);
+        } else {
+            println!("Permanent error: {}", e);
+        }
 
-// Categorize for metrics/logging
-match e.category() {
-ErrorCategory::Network => { /* connection issues */ }
-ErrorCategory::Timeout => { /* operation timed out */ }
-ErrorCategory::Protocol => { /* IMAP errors */ }
-ErrorCategory::Parse => { /* email parsing failed */ }
-ErrorCategory::Configuration => { /* invalid config */ }
-ErrorCategory::NotFound => { /* no matching email */ }
-}
-}
+        // Categorize for metrics/logging
+        match e.category() {
+            ErrorCategory::Network => { /* connection issues */ }
+            ErrorCategory::Timeout => { /* operation timed out */ }
+            ErrorCategory::Protocol => { /* IMAP errors */ }
+            ErrorCategory::Parse => { /* email parsing failed */ }
+            ErrorCategory::Configuration => { /* invalid config */ }
+            ErrorCategory::NotFound => { /* no matching email */ }
+        }
+    }
 }
 ```
 
@@ -238,11 +243,11 @@ The library auto-discovers IMAP servers for these providers:
 
 For unlisted providers, set `imap_host` explicitly or the library defaults to `imap.{domain}`.
 
-## Features Flags
+## Feature Flags
 
 ```toml
 [dependencies]
-email-sync = { git = "https://github.com/rlgrpe/email-sync.git", tag = "v.0.1.0", features = ["observability"] }
+email-sync = { git = "https://github.com/rlgrpe/email-sync.git", tag = "v0.1.1", features = ["observability"] }
 ```
 
 | Feature         | Description                                               |
@@ -263,8 +268,8 @@ Enable logging with:
 
 ```rust
 tracing_subscriber::fmt()
-.with_env_filter("email_sync=debug")
-.init();
+    .with_env_filter("email_sync=debug")
+    .init();
 ```
 
 ## Testing
@@ -281,8 +286,4 @@ cargo test -- --ignored
 
 ## License
 
-Licensed under either of:
-
-- MIT License ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
-
-at your option.
+Licensed under the [MIT License](LICENSE).
