@@ -232,7 +232,7 @@ impl Error {
     ///
     /// Use this to implement retry logic:
     ///
-    /// ```ignore
+    /// ```text
     /// if error.is_retryable() {
     ///     // Backoff and retry
     /// } else {
