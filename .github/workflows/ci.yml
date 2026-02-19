@@ -1,0 +1,116 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -Dwarnings
+
+jobs:
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --all-targets --all-features -- -D warnings -D clippy::cognitive_complexity
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: [format, lint]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --all-features -- --show-output
+
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v4
+      - run: semgrep scan --config auto
+
+  cargo-audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install cargo-audit --locked
+      - run: cargo audit
+
+  tech-debt:
+    name: Tech Debt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan for TODOs and FIXMEs
+        run: |
+          echo "## TODO/FIXME Scanner" >> $GITHUB_STEP_SUMMARY
+          COUNT=$(grep -rEn "TODO|FIXME|HACK|XXX" --include="*.rs" . | wc -l || true)
+          echo "Found **$COUNT** markers" >> $GITHUB_STEP_SUMMARY
+          grep -rEn "TODO|FIXME|HACK|XXX" --include="*.rs" . >> $GITHUB_STEP_SUMMARY || true
+
+  large-files:
+    name: Large Files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for files over 1MB
+        run: |
+          LARGE=$(find . -type f -size +1M -not -path './.git/*' -not -path './target/*')
+          if [ -n "$LARGE" ]; then
+            echo "::warning::Large files detected:"
+            echo "$LARGE"
+          fi
+
+  validate-agents:
+    name: Validate AGENTS.md
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify AGENTS.md exists and commands are valid
+        run: |
+          if [ ! -f AGENTS.md ]; then
+            echo "::warning::AGENTS.md not found"
+            exit 0
+          fi
+          echo "AGENTS.md found"
+          # Extract and validate shell commands from code blocks
+          awk '/^```bash$/,/^```$/' AGENTS.md | grep -v '^```' | while read -r cmd; do
+            [ -z "$cmd" ] && continue
+            BINARY=$(echo "$cmd" | awk '{print $1}')
+            if ! command -v "$BINARY" >/dev/null 2>&1; then
+              echo "::warning::Command not found: $BINARY (from: $cmd)"
+            fi
+          done
