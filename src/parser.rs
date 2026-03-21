@@ -3,7 +3,8 @@
 use crate::matcher::Matcher;
 use mailparse::parse_mail;
 use std::borrow::Cow;
-use tracing::{debug, warn};
+#[cfg(feature = "tracing")]
+use tracing::debug;
 
 /// Result of attempting to extract a match from a message.
 #[derive(Debug)]
@@ -25,21 +26,27 @@ pub(crate) fn extract_match_from_message(
     message: &async_imap::types::Fetch,
     pattern_matcher: &dyn Matcher,
 ) -> ExtractResult<'static> {
+    #[cfg(feature = "tracing")]
     let uid = message.uid;
 
     let Some(body) = message.body() else {
-        debug!(uid, "Message has no body");
+        #[cfg(feature = "tracing")]
+        debug!(target: "email.parser", uid, "Message has no body");
         return ExtractResult::NoMatch;
     };
 
     let parsed = match parse_mail(body) {
         Ok(p) => p,
-        Err(e) => {
-            warn!(
+        Err(err) => {
+            #[cfg(feature = "tracing")]
+            debug!(
+                target: "email.parser",
                 uid,
-                error = %e,
+                error = %err,
                 "Failed to parse email, skipping message"
             );
+            #[cfg(not(feature = "tracing"))]
+            let _ = &err;
             return ExtractResult::ParseError;
         }
     };
@@ -47,18 +54,24 @@ pub(crate) fn extract_match_from_message(
     // Try to get the body, handling multipart messages
     let text = match extract_body_text(&parsed) {
         Ok(t) => t,
-        Err(e) => {
-            warn!(
+        Err(err) => {
+            #[cfg(feature = "tracing")]
+            debug!(
+                target: "email.parser",
                 uid,
-                error = %e,
+                error = %err,
                 "Failed to extract body from email, skipping message"
             );
+            #[cfg(not(feature = "tracing"))]
+            let _ = &err;
             return ExtractResult::ParseError;
         }
     };
 
     if let Some(result) = pattern_matcher.find_match(&text) {
+        #[cfg(feature = "tracing")]
         debug!(
+            target: "email.parser",
             uid,
             matcher = %pattern_matcher.description(),
             matched_len = result.len(),
@@ -68,7 +81,9 @@ pub(crate) fn extract_match_from_message(
         // borrowing from `text` (a local variable)
         ExtractResult::Match(Cow::Owned(result.into_owned()))
     } else {
+        #[cfg(feature = "tracing")]
         debug!(
+            target: "email.parser",
             uid,
             matcher = %pattern_matcher.description(),
             "No match found in email body"
