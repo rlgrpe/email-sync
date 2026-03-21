@@ -28,7 +28,7 @@ pub(crate) fn extract_match_from_message(
     let uid = message.uid;
 
     let Some(body) = message.body() else {
-        debug!(uid, "Message has no body");
+        debug!(target: "email.parser", uid, "Message has no body");
         return ExtractResult::NoMatch;
     };
 
@@ -36,6 +36,7 @@ pub(crate) fn extract_match_from_message(
         Ok(p) => p,
         Err(e) => {
             warn!(
+                target: "email.parser",
                 uid,
                 error = %e,
                 "Failed to parse email, skipping message"
@@ -49,6 +50,7 @@ pub(crate) fn extract_match_from_message(
         Ok(t) => t,
         Err(e) => {
             warn!(
+                target: "email.parser",
                 uid,
                 error = %e,
                 "Failed to extract body from email, skipping message"
@@ -59,6 +61,7 @@ pub(crate) fn extract_match_from_message(
 
     if let Some(result) = pattern_matcher.find_match(&text) {
         debug!(
+            target: "email.parser",
             uid,
             matcher = %pattern_matcher.description(),
             matched_len = result.len(),
@@ -69,6 +72,7 @@ pub(crate) fn extract_match_from_message(
         ExtractResult::Match(Cow::Owned(result.into_owned()))
     } else {
         debug!(
+            target: "email.parser",
             uid,
             matcher = %pattern_matcher.description(),
             "No match found in email body"

@@ -38,7 +38,7 @@ pub(crate) async fn establish_tls_connection(
     let server_name = parse_server_name(imap_host)?;
     let tcp_stream = connect_tcp(target_addr, proxy).await?;
 
-    debug!("Performing TLS handshake");
+    debug!(target: "email.connection", "Performing TLS handshake");
 
     connector
         .connect(server_name, tcp_stream)
@@ -103,7 +103,7 @@ async fn connect_tcp(target_addr: &str, proxy: Option<&Socks5Proxy>) -> Result<T
 /// Direct TCP connection.
 #[instrument(name = "direct", target = "email.connection", skip_all)]
 async fn connect_direct(target_addr: &str) -> Result<TcpStream> {
-    debug!(target = %target_addr, "Establishing direct TCP connection");
+    debug!(target: "email.connection", addr = %target_addr, "Establishing direct TCP connection");
 
     TcpStream::connect(target_addr)
         .await
@@ -125,8 +125,9 @@ async fn connect_direct(target_addr: &str) -> Result<TcpStream> {
 )]
 async fn connect_via_socks5(target_addr: &str, proxy: &Socks5Proxy) -> Result<TcpStream> {
     debug!(
+        target: "email.connection",
         proxy = %proxy,
-        target = %target_addr,
+        addr = %target_addr,
         "Connecting via SOCKS5 proxy"
     );
 

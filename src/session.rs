@@ -32,7 +32,7 @@ pub(crate) async fn authenticate(
 ) -> Result<ImapSession> {
     let client = async_imap::Client::new(tls_stream);
 
-    debug!("Authenticating to IMAP server");
+    debug!(target: "email.session", "Authenticating to IMAP server");
 
     client
         .login(config.email, config.password)
@@ -46,7 +46,7 @@ pub(crate) async fn authenticate(
 /// Selects a mailbox (typically "INBOX").
 #[instrument(name = "select", target = "email.session", skip(session), fields(mailbox = %mailbox))]
 pub(crate) async fn select_mailbox(session: &mut ImapSession, mailbox: &str) -> Result<()> {
-    debug!("Selecting mailbox");
+    debug!(target: "email.session", "Selecting mailbox");
 
     session
         .select(mailbox)
@@ -75,7 +75,7 @@ pub(crate) async fn get_latest_uid(session: &mut ImapSession) -> Result<u32> {
 
     let max_uid = uids.iter().max().copied().unwrap_or(0);
 
-    debug!(max_uid, uid_count = uids.len(), "Retrieved latest UID");
+    debug!(target: "email.session", max_uid, uid_count = uids.len(), "Retrieved latest UID");
 
     Ok(max_uid)
 }
@@ -109,6 +109,7 @@ pub(crate) async fn search_emails_since(
     let uids_vec: Vec<u32> = uids.into_iter().collect();
 
     debug!(
+        target: "email.session",
         uid_count = uids_vec.len(),
         since = %since_str,
         "Found emails"
@@ -125,7 +126,7 @@ pub(crate) async fn fetch_messages_by_uid_range<'a>(
     uid_range: &str,
 ) -> Result<BoxStream<'a, std::result::Result<async_imap::types::Fetch, async_imap::error::Error>>>
 {
-    debug!(uid_range = %uid_range, "Fetching messages");
+    debug!(target: "email.session", uid_range = %uid_range, "Fetching messages");
 
     let stream = session
         .uid_fetch(uid_range, "BODY[]")
@@ -141,7 +142,7 @@ pub(crate) async fn fetch_messages_by_uid_range<'a>(
 /// Logs out from IMAP session.
 #[instrument(name = "logout", target = "email.session", skip(session))]
 pub(crate) async fn logout(session: &mut ImapSession) -> Result<()> {
-    debug!("Logging out");
+    debug!(target: "email.session", "Logging out");
 
     session
         .logout()

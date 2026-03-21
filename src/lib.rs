@@ -116,27 +116,47 @@
 //!
 //! ## Observability
 //!
-//! The crate uses `tracing` for instrumentation. All major operations emit spans with
-//! structured fields suitable for distributed tracing.
+//! The crate uses `tracing` for instrumentation. All spans use explicit `target`
+//! with dot-separated namespaces so consumers can filter at any granularity.
 //!
-//! ### Span Naming Convention
+//! ### Span Targets and Names
 //!
-//! - `ImapEmailClient::connect` - Client connection
-//! - `ImapEmailClient::wait_for_match` - Waiting for email
-//! - `ImapEmailClient::find_recent_match` - Finding recent email
-//! - `ImapEmailClient::logout` - Logout
-//! - `session::authenticate` - IMAP authentication
-//! - `connection::establish_tls` - TLS connection
+//! | Target | Span name | Operation |
+//! |--------|-----------|-----------|
+//! | `email.imap` | `connect` | Client connection |
+//! | `email.imap` | `wait_for_match` | Waiting for email |
+//! | `email.imap` | `find_recent_match` | Finding recent email |
+//! | `email.imap` | `logout` | Logout |
+//! | `email.imap` | `check_new_emails` | Polling check |
+//! | `email.imap` | `search_new_emails` | Searching new UIDs |
+//! | `email.connection` | `establish_tls` | TLS connection |
+//! | `email.connection` | `tcp_connect` | TCP connection |
+//! | `email.connection` | `direct` | Direct TCP |
+//! | `email.connection` | `socks5` | SOCKS5 proxy |
+//! | `email.session` | `authenticate` | IMAP authentication |
+//! | `email.session` | `select` | Mailbox selection |
+//! | `email.session` | `get_latest_uid` | UID fetch |
+//! | `email.session` | `search_since` | Date-based search |
+//! | `email.session` | `logout` | Session logout |
+//!
+//! ### Filtering Examples
+//!
+//! ```text
+//! email.connection=off                 # suppress all connection spans
+//! email.session[search_since]=warn     # only warn+ for search
+//! email.imap=debug                     # verbose client-level spans
+//! email.parser=off                     # suppress parser log events
+//! ```
 //!
 //! ### Standard Fields
 //!
-//! - `email` - Email address (masked in production)
+//! - `email` - Email address
 //! - `imap_host` - IMAP server hostname
 //! - `proxy_enabled` - Whether proxy is used
 //! - `matcher` - Matcher description
 //! - `uid` - Email UID
 //!
-//! Enable the `observability` feature for OpenTelemetry integration.
+//! Enable the `observability` feature for OpenTelemetry span status reporting.
 
 #![warn(missing_docs)]
 #![warn(clippy::all)]
@@ -153,6 +173,7 @@ pub mod proxy;
 // Internal modules
 mod client;
 mod connection;
+mod otel;
 mod parser;
 mod session;
 
