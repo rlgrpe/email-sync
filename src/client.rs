@@ -105,7 +105,8 @@ impl ImapEmailClient {
     /// # }
     /// ```
     #[instrument(
-        name = "ImapEmailClient::connect",
+        name = "connect",
+        target = "email.imap",
         skip_all,
         fields(
             email = %config.email(),
@@ -152,7 +153,8 @@ impl ImapEmailClient {
     /// # }
     /// ```
     #[instrument(
-        name = "ImapEmailClient::wait_for_match",
+        name = "wait_for_match",
+        target = "email.imap",
         skip(self, matcher),
         fields(matcher = %matcher.description())
     )]
@@ -206,7 +208,8 @@ impl ImapEmailClient {
     /// # }
     /// ```
     #[instrument(
-        name = "ImapEmailClient::find_recent_match",
+        name = "find_recent_match",
+        target = "email.imap",
         skip(self, matcher),
         fields(
             matcher = %matcher.description(),
@@ -254,7 +257,7 @@ impl ImapEmailClient {
     /// # Ok(())
     /// # }
     /// ```
-    #[instrument(name = "ImapEmailClient::logout", skip(self))]
+    #[instrument(name = "logout", target = "email.imap", skip(self))]
     pub async fn logout(&mut self) -> Result<()> {
         session::logout(&mut self.session).await
     }
@@ -417,7 +420,7 @@ impl ImapEmailClient {
     }
 
     /// Checks for new emails and searches for matching content.
-    #[instrument(name = "ImapEmailClient::check_new_emails", skip(self, matcher))]
+    #[instrument(name = "check_new_emails", target = "email.imap", skip(self, matcher))]
     async fn check_new_emails(&mut self, matcher: &dyn Matcher) -> Result<Option<String>> {
         let timeout = self.config.timeouts.uid_fetch;
 
@@ -442,7 +445,8 @@ impl ImapEmailClient {
 
     /// Searches through new emails for matching pattern.
     #[instrument(
-        name = "ImapEmailClient::search_new_emails",
+        name = "search_new_emails",
+        target = "email.imap",
         skip(self, matcher),
         fields(latest_uid)
     )]

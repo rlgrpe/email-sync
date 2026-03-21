@@ -21,7 +21,8 @@ pub(crate) struct AuthConfig<'a> {
 
 /// Authenticates to IMAP server and returns a session.
 #[instrument(
-    name = "session::authenticate",
+    name = "authenticate",
+    target = "email.session",
     skip_all,
     fields(email = %config.email)
 )]
@@ -43,7 +44,7 @@ pub(crate) async fn authenticate(
 }
 
 /// Selects a mailbox (typically "INBOX").
-#[instrument(name = "session::select", skip(session), fields(mailbox = %mailbox))]
+#[instrument(name = "select", target = "email.session", skip(session), fields(mailbox = %mailbox))]
 pub(crate) async fn select_mailbox(session: &mut ImapSession, mailbox: &str) -> Result<()> {
     debug!("Selecting mailbox");
 
@@ -59,7 +60,7 @@ pub(crate) async fn select_mailbox(session: &mut ImapSession, mailbox: &str) -> 
 }
 
 /// Gets the latest UID from the current mailbox.
-#[instrument(name = "session::get_latest_uid", skip(session))]
+#[instrument(name = "get_latest_uid", target = "email.session", skip(session))]
 pub(crate) async fn get_latest_uid(session: &mut ImapSession) -> Result<u32> {
     // NOOP to ensure we have latest state
     session
@@ -81,7 +82,8 @@ pub(crate) async fn get_latest_uid(session: &mut ImapSession) -> Result<u32> {
 
 /// Searches for email UIDs since a given date.
 #[instrument(
-    name = "session::search_since",
+    name = "search_since",
+    target = "email.session",
     skip(session),
     fields(since_date = %since_date)
 )]
@@ -137,7 +139,7 @@ pub(crate) async fn fetch_messages_by_uid_range<'a>(
 }
 
 /// Logs out from IMAP session.
-#[instrument(name = "session::logout", skip(session))]
+#[instrument(name = "logout", target = "email.session", skip(session))]
 pub(crate) async fn logout(session: &mut ImapSession) -> Result<()> {
     debug!("Logging out");
 

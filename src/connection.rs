@@ -20,7 +20,8 @@ pub(crate) type TlsStream = tokio_rustls::client::TlsStream<TcpStream>;
 ///
 /// If a proxy is provided, the connection is routed through SOCKS5.
 #[instrument(
-    name = "connection::establish_tls",
+    name = "establish_tls",
+    target = "email.connection",
     skip_all,
     fields(
         imap_host = %imap_host,
@@ -84,7 +85,8 @@ fn parse_server_name(host: &str) -> Result<ServerName<'static>> {
 
 /// Establishes a TCP connection, optionally through SOCKS5.
 #[instrument(
-    name = "connection::tcp_connect",
+    name = "tcp_connect",
+    target = "email.connection",
     skip_all,
     fields(
         target_addr = %target_addr,
@@ -99,7 +101,7 @@ async fn connect_tcp(target_addr: &str, proxy: Option<&Socks5Proxy>) -> Result<T
 }
 
 /// Direct TCP connection.
-#[instrument(name = "connection::direct", skip_all)]
+#[instrument(name = "direct", target = "email.connection", skip_all)]
 async fn connect_direct(target_addr: &str) -> Result<TcpStream> {
     debug!(target = %target_addr, "Establishing direct TCP connection");
 
@@ -113,7 +115,8 @@ async fn connect_direct(target_addr: &str) -> Result<TcpStream> {
 
 /// TCP connection via SOCKS5 proxy.
 #[instrument(
-    name = "connection::socks5",
+    name = "socks5",
+    target = "email.connection",
     skip_all,
     fields(
         proxy_host = %proxy.host,
