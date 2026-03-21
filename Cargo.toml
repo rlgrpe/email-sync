@@ -13,8 +13,8 @@ default = ["tls-ring"]
 # TLS crypto backend (enable exactly one)
 tls-ring = ["rustls/ring"]
 tls-aws-lc-rs = ["rustls/aws-lc-rs"]
-# Enable OpenTelemetry instrumentation
-observability = ["dep:tracing-opentelemetry", "dep:opentelemetry"]
+# Enable OpenTelemetry integration for tracing
+tracing = ["dep:tracing-opentelemetry", "dep:opentelemetry"]
 
 [dependencies]
 # Async runtime

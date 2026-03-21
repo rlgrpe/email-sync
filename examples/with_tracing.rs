@@ -1,4 +1,4 @@
-//! Example: Using tracing for observability.
+//! Example: Using the `tracing` feature.
 //!
 //! This example demonstrates how to enable structured logging using
 //! the `tracing` ecosystem. All major operations in email-sync emit

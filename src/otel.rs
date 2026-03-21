@@ -1,6 +1,6 @@
 //! Internal helpers for OpenTelemetry span status reporting.
 //!
-//! Active only with the `observability` feature.
+//! Active only with the `tracing` feature.
 
 use crate::error::Error;
 
@@ -9,7 +9,7 @@ use crate::error::Error;
 /// - `Ok` -> `Status::Ok`
 /// - `Err` -> `Status::error(...)` with the error message
 pub(crate) fn set_span_status(result: &Result<impl Sized, Error>) {
-    #[cfg(feature = "observability")]
+    #[cfg(feature = "tracing")]
     {
         use opentelemetry::trace::Status;
         use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -20,6 +20,6 @@ pub(crate) fn set_span_status(result: &Result<impl Sized, Error>) {
         }
     }
 
-    #[cfg(not(feature = "observability"))]
+    #[cfg(not(feature = "tracing"))]
     let _ = result;
 }

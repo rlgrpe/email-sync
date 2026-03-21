@@ -32,52 +32,80 @@ pub(crate) async fn authenticate(
 ) -> Result<ImapSession> {
     let client = async_imap::Client::new(tls_stream);
 
-    debug!(target: "email.session", "Authenticating to IMAP server");
+    let result = async {
+        debug!(target: "email.session", "Authenticating to IMAP server");
 
-    client
-        .login(config.email, config.password)
-        .await
-        .map_err(|e| Error::ImapLogin {
-            email: config.email.to_string(),
-            source: e.0,
-        })
+        client
+            .login(config.email, config.password)
+            .await
+            .map_err(|e| Error::ImapLogin {
+                email: config.email.to_string(),
+                source: e.0,
+            })
+    }
+    .await;
+
+    crate::otel::set_span_status(&result);
+    result
 }
 
 /// Selects a mailbox (typically "INBOX").
 #[instrument(name = "select", target = "email.session", skip(session), fields(mailbox = %mailbox))]
 pub(crate) async fn select_mailbox(session: &mut ImapSession, mailbox: &str) -> Result<()> {
-    debug!(target: "email.session", "Selecting mailbox");
+    let result = async {
+        debug!(target: "email.session", "Selecting mailbox");
 
-    session
-        .select(mailbox)
-        .await
-        .map_err(|source| Error::SelectMailbox {
-            mailbox: mailbox.to_string(),
-            source,
-        })?;
+        session
+            .select(mailbox)
+            .await
+            .map_err(|source| Error::SelectMailbox {
+                mailbox: mailbox.to_string(),
+                source,
+            })?;
 
-    Ok(())
+        Ok(())
+    }
+    .await;
+
+    crate::otel::set_span_status(&result);
+    result
 }
 
 /// Gets the latest UID from the current mailbox.
-#[instrument(name = "get_latest_uid", target = "email.session", skip(session))]
+#[instrument(
+    name = "get_latest_uid",
+    target = "email.session",
+    skip(session),
+    fields(max_uid, uid_count)
+)]
 pub(crate) async fn get_latest_uid(session: &mut ImapSession) -> Result<u32> {
-    // NOOP to ensure we have latest state
-    session
-        .noop()
-        .await
-        .map_err(|source| Error::ImapNoop { source })?;
+    let result = async {
+        // NOOP to ensure we have latest state
+        session
+            .noop()
+            .await
+            .map_err(|source| Error::ImapNoop { source })?;
 
-    let uids = session
-        .uid_search("ALL")
-        .await
-        .map_err(|source| Error::ImapSearch { source })?;
+        let uids = session
+            .uid_search("ALL")
+            .await
+            .map_err(|source| Error::ImapSearch { source })?;
 
-    let max_uid = uids.iter().max().copied().unwrap_or(0);
+        let max_uid = uids.iter().max().copied().unwrap_or(0);
+        let span = tracing::Span::current();
+        let uid_count = uids.len() as u64;
 
-    debug!(target: "email.session", max_uid, uid_count = uids.len(), "Retrieved latest UID");
+        span.record("max_uid", max_uid);
+        span.record("uid_count", uid_count);
 
-    Ok(max_uid)
+        debug!(target: "email.session", max_uid, uid_count, "Retrieved latest UID");
+
+        Ok(max_uid)
+    }
+    .await;
+
+    crate::otel::set_span_status(&result);
+    result
 }
 
 /// Searches for email UIDs since a given date.
@@ -85,37 +113,46 @@ pub(crate) async fn get_latest_uid(session: &mut ImapSession) -> Result<u32> {
     name = "search_since",
     target = "email.session",
     skip(session),
-    fields(since_date = %since_date)
+    fields(since_date = %since_date, uid_count)
 )]
 pub(crate) async fn search_emails_since(
     session: &mut ImapSession,
     since_date: NaiveDate,
 ) -> Result<Vec<u32>> {
-    // NOOP to ensure we have latest state
-    session
-        .noop()
-        .await
-        .map_err(|source| Error::ImapNoop { source })?;
+    let result = async {
+        // NOOP to ensure we have latest state
+        session
+            .noop()
+            .await
+            .map_err(|source| Error::ImapNoop { source })?;
 
-    // IMAP SINCE format: "DD-Mon-YYYY" (e.g., "07-Dec-2025")
-    let since_str = since_date.format("%d-%b-%Y").to_string();
-    let query = format!("SINCE {since_str}");
+        // IMAP SINCE format: "DD-Mon-YYYY" (e.g., "07-Dec-YYYY")
+        let since_str = since_date.format("%d-%b-%Y").to_string();
+        let query = format!("SINCE {since_str}");
 
-    let uids = session
-        .uid_search(&query)
-        .await
-        .map_err(|source| Error::ImapSearch { source })?;
+        let uids = session
+            .uid_search(&query)
+            .await
+            .map_err(|source| Error::ImapSearch { source })?;
 
-    let uids_vec: Vec<u32> = uids.into_iter().collect();
+        let uids_vec: Vec<u32> = uids.into_iter().collect();
+        let uid_count = uids_vec.len() as u64;
 
-    debug!(
-        target: "email.session",
-        uid_count = uids_vec.len(),
-        since = %since_str,
-        "Found emails"
-    );
+        tracing::Span::current().record("uid_count", uid_count);
 
-    Ok(uids_vec)
+        debug!(
+            target: "email.session",
+            uid_count,
+            since = %since_str,
+            "Found emails"
+        );
+
+        Ok(uids_vec)
+    }
+    .await;
+
+    crate::otel::set_span_status(&result);
+    result
 }
 
 /// Fetches messages by UID range.
@@ -142,12 +179,18 @@ pub(crate) async fn fetch_messages_by_uid_range<'a>(
 /// Logs out from IMAP session.
 #[instrument(name = "logout", target = "email.session", skip(session))]
 pub(crate) async fn logout(session: &mut ImapSession) -> Result<()> {
-    debug!(target: "email.session", "Logging out");
+    let result = async {
+        debug!(target: "email.session", "Logging out");
 
-    session
-        .logout()
-        .await
-        .map_err(|source| Error::ImapLogout { source })?;
+        session
+            .logout()
+            .await
+            .map_err(|source| Error::ImapLogout { source })?;
 
-    Ok(())
+        Ok(())
+    }
+    .await;
+
+    crate::otel::set_span_status(&result);
+    result
 }

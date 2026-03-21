@@ -3,7 +3,7 @@
 use crate::matcher::Matcher;
 use mailparse::parse_mail;
 use std::borrow::Cow;
-use tracing::{debug, warn};
+use tracing::debug;
 
 /// Result of attempting to extract a match from a message.
 #[derive(Debug)]
@@ -35,7 +35,7 @@ pub(crate) fn extract_match_from_message(
     let parsed = match parse_mail(body) {
         Ok(p) => p,
         Err(e) => {
-            warn!(
+            debug!(
                 target: "email.parser",
                 uid,
                 error = %e,
@@ -49,7 +49,7 @@ pub(crate) fn extract_match_from_message(
     let text = match extract_body_text(&parsed) {
         Ok(t) => t,
         Err(e) => {
-            warn!(
+            debug!(
                 target: "email.parser",
                 uid,
                 error = %e,

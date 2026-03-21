@@ -40,13 +40,15 @@ pub(crate) async fn establish_tls_connection(
 
     debug!(target: "email.connection", "Performing TLS handshake");
 
-    connector
+    let result = connector
         .connect(server_name, tcp_stream)
         .await
         .map_err(|source| Error::TlsConnect {
             target: target_addr.to_string(),
             source,
-        })
+        });
+    crate::otel::set_span_status(&result);
+    result
 }
 
 /// Returns the crypto provider based on enabled feature flags.
@@ -94,10 +96,12 @@ fn parse_server_name(host: &str) -> Result<ServerName<'static>> {
     )
 )]
 async fn connect_tcp(target_addr: &str, proxy: Option<&Socks5Proxy>) -> Result<TcpStream> {
-    match proxy {
+    let result = match proxy {
         Some(proxy) => connect_via_socks5(target_addr, proxy).await,
         None => connect_direct(target_addr).await,
-    }
+    };
+    crate::otel::set_span_status(&result);
+    result
 }
 
 /// Direct TCP connection.
@@ -105,12 +109,14 @@ async fn connect_tcp(target_addr: &str, proxy: Option<&Socks5Proxy>) -> Result<T
 async fn connect_direct(target_addr: &str) -> Result<TcpStream> {
     debug!(target: "email.connection", addr = %target_addr, "Establishing direct TCP connection");
 
-    TcpStream::connect(target_addr)
+    let result = TcpStream::connect(target_addr)
         .await
         .map_err(|source| Error::TcpConnect {
             target: target_addr.to_string(),
             source,
-        })
+        });
+    crate::otel::set_span_status(&result);
+    result
 }
 
 /// TCP connection via SOCKS5 proxy.
@@ -146,13 +152,15 @@ async fn connect_via_socks5(target_addr: &str, proxy: &Socks5Proxy) -> Result<Tc
         None => Socks5Stream::connect(proxy_addr, target_addr).await,
     };
 
-    stream
+    let result = stream
         .map(Socks5Stream::into_inner)
         .map_err(|source| Error::Socks5Connect {
             proxy_host: proxy.host.clone(),
             target: target_addr.to_string(),
             source,
-        })
+        });
+    crate::otel::set_span_status(&result);
+    result
 }
 
 #[cfg(test)]

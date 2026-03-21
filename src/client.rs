@@ -111,11 +111,17 @@ impl ImapEmailClient {
         fields(
             email = %config.email(),
             imap_host = %config.effective_imap_host(),
-            proxy_enabled = config.proxy.is_some()
+            proxy_enabled = config.proxy.is_some(),
+            start_uid
         )
     )]
     pub async fn connect(config: ImapConfig) -> Result<Self> {
         let result = Self::connect_inner(&config).await;
+
+        if let Ok((_, start_uid)) = &result {
+            tracing::Span::current().record("start_uid", start_uid);
+        }
+
         crate::otel::set_span_status(&result);
         result.map(|(session, start_uid)| Self {
             session: Box::new(session),
@@ -153,7 +159,10 @@ impl ImapEmailClient {
         name = "wait_for_match",
         target = "email.imap",
         skip(self, matcher),
-        fields(matcher = %matcher.description())
+        fields(
+            matcher = %matcher.description(),
+            poll_attempts
+        )
     )]
     pub async fn wait_for_match(&mut self, matcher: &dyn Matcher) -> Result<String> {
         let result = self.wait_for_match_inner(matcher).await;
@@ -198,7 +207,8 @@ impl ImapEmailClient {
         skip(self, matcher),
         fields(
             matcher = %matcher.description(),
-            max_age_secs = max_age.as_secs()
+            max_age_secs = max_age.as_secs(),
+            uid_count
         )
     )]
     pub async fn find_recent_match(
@@ -293,6 +303,9 @@ impl ImapEmailClient {
         debug!(target: "email.imap", since_date = %since_date, "Searching for recent emails");
 
         let uids = self.search_emails_since(since_date).await?;
+        let uid_count = uids.len() as u64;
+
+        tracing::Span::current().record("uid_count", uid_count);
 
         if uids.is_empty() {
             return Err(Error::NoMatch);
@@ -305,13 +318,18 @@ impl ImapEmailClient {
         let timeout = self.config.polling.max_wait;
         let poll_interval = self.config.polling.interval;
         let deadline = Instant::now() + timeout;
+        let mut poll_attempts = 0_u64;
 
         loop {
+            poll_attempts += 1;
+
             if Instant::now() > deadline {
+                tracing::Span::current().record("poll_attempts", poll_attempts);
                 return Err(Error::WaitTimeout { timeout });
             }
 
             if let Some(result) = self.check_new_emails(matcher).await? {
+                tracing::Span::current().record("poll_attempts", poll_attempts);
                 return Ok(result);
             }
 
@@ -442,28 +460,46 @@ impl ImapEmailClient {
     }
 
     /// Checks for new emails and searches for matching content.
-    #[instrument(name = "check_new_emails", target = "email.imap", skip(self, matcher))]
+    #[instrument(
+        name = "check_new_emails",
+        target = "email.imap",
+        skip(self, matcher),
+        fields(start_uid = self.start_uid, latest_uid, new_uid_count)
+    )]
     async fn check_new_emails(&mut self, matcher: &dyn Matcher) -> Result<Option<String>> {
-        let timeout = self.config.timeouts.uid_fetch;
+        let result = async {
+            let timeout = self.config.timeouts.uid_fetch;
 
-        let latest_uid = tokio::time::timeout(timeout, session::get_latest_uid(&mut self.session))
-            .await
-            .map_err(|_| Error::UidFetchTimeout { timeout })??;
+            let latest_uid =
+                tokio::time::timeout(timeout, session::get_latest_uid(&mut self.session))
+                    .await
+                    .map_err(|_| Error::UidFetchTimeout { timeout })??;
+            let new_uid_count = latest_uid.saturating_sub(self.start_uid);
+            let span = tracing::Span::current();
 
-        debug!(
-            target: "email.imap",
-            latest_uid,
-            start_uid = self.start_uid,
-            "Checking for new emails"
-        );
+            span.record("latest_uid", latest_uid);
+            span.record("new_uid_count", new_uid_count);
 
-        if latest_uid <= self.start_uid {
-            return Ok(None);
+            debug!(
+                target: "email.imap",
+                latest_uid,
+                start_uid = self.start_uid,
+                new_uid_count,
+                "Checking for new emails"
+            );
+
+            if latest_uid <= self.start_uid {
+                return Ok(None);
+            }
+
+            let result = self.search_new_emails(matcher, latest_uid).await?;
+            self.start_uid = latest_uid;
+            Ok(result)
         }
+        .await;
 
-        let result = self.search_new_emails(matcher, latest_uid).await?;
-        self.start_uid = latest_uid;
-        Ok(result)
+        crate::otel::set_span_status(&result);
+        result
     }
 
     /// Searches through new emails for matching pattern.
@@ -471,38 +507,49 @@ impl ImapEmailClient {
         name = "search_new_emails",
         target = "email.imap",
         skip(self, matcher),
-        fields(latest_uid)
+        fields(latest_uid, start_uid = self.start_uid, new_uid_count, uid_range)
     )]
     async fn search_new_emails(
         &mut self,
         matcher: &dyn Matcher,
         latest_uid: u32,
     ) -> Result<Option<String>> {
-        let fetch_timeout = self.config.timeouts.message_fetch;
-        let uid_range = format!("{}:{}", self.start_uid + 1, latest_uid);
+        let result = async {
+            let fetch_timeout = self.config.timeouts.message_fetch;
+            let uid_range = format!("{}:{}", self.start_uid + 1, latest_uid);
+            let new_uid_count = latest_uid.saturating_sub(self.start_uid);
+            let span = tracing::Span::current();
 
-        let mut fetch_result = tokio::time::timeout(
-            fetch_timeout,
-            session::fetch_messages_by_uid_range(&mut self.session, &uid_range),
-        )
-        .await
-        .map_err(|_| Error::FetchTimeout {
-            uid_range: uid_range.clone(),
-            timeout: fetch_timeout,
-        })??;
+            span.record("new_uid_count", new_uid_count);
+            span.record("uid_range", tracing::field::display(&uid_range));
 
-        while let Some(message_result) = fetch_result.next().await {
-            let message = message_result.map_err(|source| Error::FetchMessage { source })?;
+            let mut fetch_result = tokio::time::timeout(
+                fetch_timeout,
+                session::fetch_messages_by_uid_range(&mut self.session, &uid_range),
+            )
+            .await
+            .map_err(|_| Error::FetchTimeout {
+                uid_range: uid_range.clone(),
+                timeout: fetch_timeout,
+            })??;
 
-            match parser::extract_match_from_message(&message, matcher) {
-                ExtractResult::Match(result) => return Ok(Some(result.into_owned())),
-                ExtractResult::NoMatch | ExtractResult::ParseError => {
-                    // Continue to next message (parse errors are logged in parser)
+            while let Some(message_result) = fetch_result.next().await {
+                let message = message_result.map_err(|source| Error::FetchMessage { source })?;
+
+                match parser::extract_match_from_message(&message, matcher) {
+                    ExtractResult::Match(result) => return Ok(Some(result.into_owned())),
+                    ExtractResult::NoMatch | ExtractResult::ParseError => {
+                        // Continue to next message (parse errors are logged in parser)
+                    }
                 }
             }
-        }
 
-        Ok(None)
+            Ok(None)
+        }
+        .await;
+
+        crate::otel::set_span_status(&result);
+        result
     }
 }
 
