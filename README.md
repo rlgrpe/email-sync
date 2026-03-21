@@ -23,7 +23,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-email-sync = { git = "https://github.com/rlgrpe/email-sync.git", tag = "v0.1.1" }
+email-sync = { git = "https://github.com/rlgrpe/email-sync.git", tag = "v0.2.0" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 
