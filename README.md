@@ -214,7 +214,7 @@ cargo run --example basic_otp
 cargo run --example find_recent
 cargo run --example custom_matcher
 cargo run --example with_proxy
-cargo run --example with_tracing
+cargo run --example with_tracing --features tracing
 cargo run --example error_handling
 ```
 
@@ -247,22 +247,37 @@ For unlisted providers, set `imap_host` explicitly or the library defaults to `i
 
 ```toml
 [dependencies]
-email-sync = { git = "https://github.com/rlgrpe/email-sync.git", tag = "v0.1.1", features = ["observability"] }
+email-sync = { git = "https://github.com/rlgrpe/email-sync.git", tag = "v0.2.0", features = ["tracing"] }
 ```
 
-| Feature         | Description                                               |
-|-----------------|-----------------------------------------------------------|
-| `observability` | Enables OpenTelemetry integration for distributed tracing |
+| Feature       | Default | Description                                                   |
+|---------------|---------|---------------------------------------------------------------|
+| `tracing`     | Yes     | Enables tracing instrumentation with OpenTelemetry support    |
+| `tls-ring`    | Yes     | Use `ring` as TLS crypto backend                              |
+| `tls-aws-lc-rs` | No  | Use `aws-lc-rs` as TLS crypto backend (alternative to `ring`) |
 
 ## Tracing
 
-All operations emit structured tracing spans:
+When the `tracing` feature is enabled (default), all operations emit structured spans with
+dot-separated targets for granular filtering:
 
-- `ImapEmailClient::connect` - Connection establishment
-- `ImapEmailClient::wait_for_match` - Polling for emails
-- `ImapEmailClient::find_recent_match` - Searching recent emails
-- `session::authenticate` - IMAP authentication
-- `connection::establish_tls` - TLS handshake
+| Target              | Span name          | Operation              |
+|---------------------|--------------------|------------------------|
+| `email.imap`        | `connect`          | Client connection      |
+| `email.imap`        | `wait_for_match`   | Waiting for email      |
+| `email.imap`        | `find_recent_match`| Finding recent email   |
+| `email.imap`        | `logout`           | Logout                 |
+| `email.imap`        | `check_new_emails` | Polling check          |
+| `email.imap`        | `search_new_emails`| Searching new UIDs     |
+| `email.connection`  | `establish_tls`    | TLS connection         |
+| `email.connection`  | `tcp_connect`      | TCP connection         |
+| `email.connection`  | `direct`           | Direct TCP             |
+| `email.connection`  | `socks5`           | SOCKS5 proxy           |
+| `email.session`     | `authenticate`     | IMAP authentication    |
+| `email.session`     | `select`           | Mailbox selection      |
+| `email.session`     | `get_latest_uid`   | UID fetch              |
+| `email.session`     | `search_since`     | Date-based search      |
+| `email.session`     | `logout`           | Session logout         |
 
 Enable logging with:
 
@@ -272,16 +287,25 @@ tracing_subscriber::fmt()
     .init();
 ```
 
+Filtering examples:
+
+```text
+email.connection=off                 # suppress all connection spans
+email.session[search_since]=warn     # only warn+ for search
+email.imap=debug                     # verbose client-level spans
+email.parser=off                     # suppress parser log events
+```
+
 ## Testing
 
 ```bash
-# Unit tests
-cargo test
+# Unit tests (all features)
+cargo test --all-features
 
 # Integration tests (requires real IMAP server)
 export EMAIL_SYNC_TEST_EMAIL="your@email.com"
 export EMAIL_SYNC_TEST_PASSWORD="your-app-password"
-cargo test -- --ignored
+cargo test --all-features -- --ignored
 ```
 
 ## License
