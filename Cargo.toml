@@ -9,12 +9,12 @@ keywords = ["imap", "email", "async", "tokio"]
 categories = ["email", "asynchronous", "network-programming"]
 
 [features]
-default = ["tls-ring"]
+default = ["tls-ring", "tracing"]
 # TLS crypto backend (enable exactly one)
 tls-ring = ["rustls/ring"]
 tls-aws-lc-rs = ["rustls/aws-lc-rs"]
-# Enable OpenTelemetry integration for tracing
-tracing = ["dep:tracing-opentelemetry", "dep:opentelemetry"]
+# Enable tracing instrumentation with OpenTelemetry support
+tracing = ["dep:tracing", "dep:tracing-opentelemetry", "dep:opentelemetry"]
 
 [dependencies]
 # Async runtime
@@ -48,8 +48,8 @@ thiserror = "1.0"
 secrecy = "0.10"
 email_address = "0.2"
 
-# Tracing (always available, spans are no-op without subscriber)
-tracing = "0.1"
+# Tracing (optional)
+tracing = { version = "0.1", optional = true }
 
 # Observability (optional)
 tracing-opentelemetry = { version = "0.31", optional = true }
@@ -80,6 +80,7 @@ path = "examples/with_proxy.rs"
 [[example]]
 name = "with_tracing"
 path = "examples/with_tracing.rs"
+required-features = ["tracing"]
 
 [[example]]
 name = "error_handling"

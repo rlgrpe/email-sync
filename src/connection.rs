@@ -10,7 +10,8 @@ use std::sync::Arc;
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 use tokio_socks::tcp::Socks5Stream;
-use tracing::{debug, instrument};
+#[cfg(feature = "tracing")]
+use tracing::debug;
 use webpki_roots::TLS_SERVER_ROOTS;
 
 /// A TLS stream over TCP, used for IMAP communication.
@@ -19,14 +20,17 @@ pub(crate) type TlsStream = tokio_rustls::client::TlsStream<TcpStream>;
 /// Establishes a TLS connection to an IMAP server.
 ///
 /// If a proxy is provided, the connection is routed through SOCKS5.
-#[instrument(
-    name = "establish_tls",
-    target = "email.connection",
-    skip_all,
-    fields(
-        imap_host = %imap_host,
-        target_addr = %target_addr,
-        proxy_enabled = proxy.is_some()
+#[cfg_attr(
+    feature = "tracing",
+    tracing::instrument(
+        name = "establish_tls",
+        target = "email.connection",
+        skip_all,
+        fields(
+            imap_host = %imap_host,
+            target_addr = %target_addr,
+            proxy_enabled = proxy.is_some()
+        )
     )
 )]
 pub(crate) async fn establish_tls_connection(
@@ -34,10 +38,13 @@ pub(crate) async fn establish_tls_connection(
     target_addr: &str,
     proxy: Option<&Socks5Proxy>,
 ) -> Result<TlsStream> {
+    crate::otel::set_client_kind();
+
     let connector = create_tls_connector();
     let server_name = parse_server_name(imap_host)?;
     let tcp_stream = connect_tcp(target_addr, proxy).await?;
 
+    #[cfg(feature = "tracing")]
     debug!(target: "email.connection", "Performing TLS handshake");
 
     let result = connector
@@ -47,7 +54,12 @@ pub(crate) async fn establish_tls_connection(
             target: target_addr.to_string(),
             source,
         });
-    crate::otel::set_span_status(&result);
+
+    match &result {
+        Ok(_) => crate::otel::set_span_ok(),
+        Err(e) => crate::otel::set_span_error(e),
+    }
+
     result
 }
 
@@ -86,13 +98,16 @@ fn parse_server_name(host: &str) -> Result<ServerName<'static>> {
 }
 
 /// Establishes a TCP connection, optionally through SOCKS5.
-#[instrument(
-    name = "tcp_connect",
-    target = "email.connection",
-    skip_all,
-    fields(
-        target_addr = %target_addr,
-        via_proxy = proxy.is_some()
+#[cfg_attr(
+    feature = "tracing",
+    tracing::instrument(
+        name = "tcp_connect",
+        target = "email.connection",
+        skip_all,
+        fields(
+            target_addr = %target_addr,
+            via_proxy = proxy.is_some()
+        )
     )
 )]
 async fn connect_tcp(target_addr: &str, proxy: Option<&Socks5Proxy>) -> Result<TcpStream> {
@@ -100,13 +115,24 @@ async fn connect_tcp(target_addr: &str, proxy: Option<&Socks5Proxy>) -> Result<T
         Some(proxy) => connect_via_socks5(target_addr, proxy).await,
         None => connect_direct(target_addr).await,
     };
-    crate::otel::set_span_status(&result);
+
+    match &result {
+        Ok(_) => crate::otel::set_span_ok(),
+        Err(e) => crate::otel::set_span_error(e),
+    }
+
     result
 }
 
 /// Direct TCP connection.
-#[instrument(name = "direct", target = "email.connection", skip_all)]
+#[cfg_attr(
+    feature = "tracing",
+    tracing::instrument(name = "direct", target = "email.connection", skip_all)
+)]
 async fn connect_direct(target_addr: &str) -> Result<TcpStream> {
+    crate::otel::set_client_kind();
+
+    #[cfg(feature = "tracing")]
     debug!(target: "email.connection", addr = %target_addr, "Establishing direct TCP connection");
 
     let result = TcpStream::connect(target_addr)
@@ -115,21 +141,33 @@ async fn connect_direct(target_addr: &str) -> Result<TcpStream> {
             target: target_addr.to_string(),
             source,
         });
-    crate::otel::set_span_status(&result);
+
+    match &result {
+        Ok(_) => crate::otel::set_span_ok(),
+        Err(e) => crate::otel::set_span_error(e),
+    }
+
     result
 }
 
 /// TCP connection via SOCKS5 proxy.
-#[instrument(
-    name = "socks5",
-    target = "email.connection",
-    skip_all,
-    fields(
-        proxy_host = %proxy.host,
-        has_auth = proxy.requires_auth()
+#[cfg_attr(
+    feature = "tracing",
+    tracing::instrument(
+        name = "socks5",
+        target = "email.connection",
+        skip_all,
+        fields(
+            proxy_host = %proxy.host,
+            has_auth = proxy.requires_auth()
+        )
     )
 )]
 async fn connect_via_socks5(target_addr: &str, proxy: &Socks5Proxy) -> Result<TcpStream> {
+    #[cfg(feature = "tracing")]
+    crate::otel::set_client_kind();
+
+    #[cfg(feature = "tracing")]
     debug!(
         target: "email.connection",
         proxy = %proxy,
@@ -159,7 +197,12 @@ async fn connect_via_socks5(target_addr: &str, proxy: &Socks5Proxy) -> Result<Tc
             target: target_addr.to_string(),
             source,
         });
-    crate::otel::set_span_status(&result);
+
+    match &result {
+        Ok(_) => crate::otel::set_span_ok(),
+        Err(e) => crate::otel::set_span_error(e),
+    }
+
     result
 }
 

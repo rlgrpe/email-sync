@@ -41,7 +41,8 @@ use crate::session::{self, AuthConfig, ImapSession};
 use chrono::{NaiveDate, Utc};
 use futures::StreamExt;
 use std::time::{Duration, Instant};
-use tracing::{debug, instrument, warn};
+#[cfg(feature = "tracing")]
+use tracing::{debug, warn};
 
 /// Async IMAP client for email monitoring and pattern matching.
 ///
@@ -104,25 +105,38 @@ impl ImapEmailClient {
     /// # Ok(())
     /// # }
     /// ```
-    #[instrument(
-        name = "connect",
-        target = "email.imap",
-        skip_all,
-        fields(
-            email = %config.email(),
-            imap_host = %config.effective_imap_host(),
-            proxy_enabled = config.proxy.is_some(),
-            start_uid
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(
+            name = "connect",
+            target = "email.imap",
+            skip_all,
+            fields(
+                email = %config.email(),
+                imap_host = %config.effective_imap_host(),
+                proxy_enabled = config.proxy.is_some(),
+                start_uid,
+                outcome = tracing::field::Empty
+            )
         )
     )]
     pub async fn connect(config: ImapConfig) -> Result<Self> {
         let result = Self::connect_inner(&config).await;
 
-        if let Ok((_, start_uid)) = &result {
-            tracing::Span::current().record("start_uid", start_uid);
+        #[cfg(feature = "tracing")]
+        match &result {
+            Ok((_, start_uid)) => {
+                tracing::Span::current()
+                    .record("start_uid", start_uid)
+                    .record("outcome", "success");
+                crate::otel::set_span_ok();
+            }
+            Err(e) => {
+                tracing::Span::current().record("outcome", "error");
+                crate::otel::set_span_error(e);
+            }
         }
 
-        crate::otel::set_span_status(&result);
         result.map(|(session, start_uid)| Self {
             session: Box::new(session),
             config,
@@ -155,18 +169,38 @@ impl ImapEmailClient {
     /// # Ok(())
     /// # }
     /// ```
-    #[instrument(
-        name = "wait_for_match",
-        target = "email.imap",
-        skip(self, matcher),
-        fields(
-            matcher = %matcher.description(),
-            poll_attempts
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(
+            name = "wait_for_match",
+            target = "email.imap",
+            skip(self, matcher),
+            fields(
+                matcher = %matcher.description(),
+                poll_attempts,
+                outcome = tracing::field::Empty
+            )
         )
     )]
     pub async fn wait_for_match(&mut self, matcher: &dyn Matcher) -> Result<String> {
         let result = self.wait_for_match_inner(matcher).await;
-        crate::otel::set_span_status(&result);
+
+        #[cfg(feature = "tracing")]
+        match &result {
+            Ok(_) => {
+                tracing::Span::current().record("outcome", "success");
+                crate::otel::set_span_ok();
+            }
+            Err(Error::WaitTimeout { .. }) => {
+                tracing::Span::current().record("outcome", "timeout");
+                crate::otel::set_span_error(&"timeout");
+            }
+            Err(e) => {
+                tracing::Span::current().record("outcome", "error");
+                crate::otel::set_span_error(e);
+            }
+        }
+
         result
     }
 
@@ -201,14 +235,18 @@ impl ImapEmailClient {
     /// # Ok(())
     /// # }
     /// ```
-    #[instrument(
-        name = "find_recent_match",
-        target = "email.imap",
-        skip(self, matcher),
-        fields(
-            matcher = %matcher.description(),
-            max_age_secs = max_age.as_secs(),
-            uid_count
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(
+            name = "find_recent_match",
+            target = "email.imap",
+            skip(self, matcher),
+            fields(
+                matcher = %matcher.description(),
+                max_age_secs = max_age.as_secs(),
+                uid_count,
+                outcome = tracing::field::Empty
+            )
         )
     )]
     pub async fn find_recent_match(
@@ -217,7 +255,23 @@ impl ImapEmailClient {
         max_age: Duration,
     ) -> Result<String> {
         let result = self.find_recent_match_inner(matcher, max_age).await;
-        crate::otel::set_span_status(&result);
+
+        #[cfg(feature = "tracing")]
+        match &result {
+            Ok(_) => {
+                tracing::Span::current().record("outcome", "success");
+                crate::otel::set_span_ok();
+            }
+            Err(Error::NoMatch) => {
+                tracing::Span::current().record("outcome", "no_match");
+                crate::otel::set_span_error(&"no_match");
+            }
+            Err(e) => {
+                tracing::Span::current().record("outcome", "error");
+                crate::otel::set_span_error(e);
+            }
+        }
+
         result
     }
 
@@ -244,10 +298,30 @@ impl ImapEmailClient {
     /// # Ok(())
     /// # }
     /// ```
-    #[instrument(name = "logout", target = "email.imap", skip(self))]
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(
+            name = "logout",
+            target = "email.imap",
+            skip(self),
+            fields(outcome = tracing::field::Empty)
+        )
+    )]
     pub async fn logout(&mut self) -> Result<()> {
         let result = session::logout(&mut self.session).await;
-        crate::otel::set_span_status(&result);
+
+        #[cfg(feature = "tracing")]
+        match &result {
+            Ok(()) => {
+                tracing::Span::current().record("outcome", "success");
+                crate::otel::set_span_ok();
+            }
+            Err(e) => {
+                tracing::Span::current().record("outcome", "error");
+                crate::otel::set_span_error(e);
+            }
+        }
+
         result
     }
 
@@ -300,11 +374,14 @@ impl ImapEmailClient {
     ) -> Result<String> {
         let since_date = Self::calculate_since_date(max_age);
 
+        #[cfg(feature = "tracing")]
         debug!(target: "email.imap", since_date = %since_date, "Searching for recent emails");
 
         let uids = self.search_emails_since(since_date).await?;
+        #[cfg(feature = "tracing")]
         let uid_count = uids.len() as u64;
 
+        #[cfg(feature = "tracing")]
         tracing::Span::current().record("uid_count", uid_count);
 
         if uids.is_empty() {
@@ -318,17 +395,23 @@ impl ImapEmailClient {
         let timeout = self.config.polling.max_wait;
         let poll_interval = self.config.polling.interval;
         let deadline = Instant::now() + timeout;
+        #[cfg(feature = "tracing")]
         let mut poll_attempts = 0_u64;
 
         loop {
-            poll_attempts += 1;
+            #[cfg(feature = "tracing")]
+            {
+                poll_attempts += 1;
+            }
 
             if Instant::now() > deadline {
+                #[cfg(feature = "tracing")]
                 tracing::Span::current().record("poll_attempts", poll_attempts);
                 return Err(Error::WaitTimeout { timeout });
             }
 
             if let Some(result) = self.check_new_emails(matcher).await? {
+                #[cfg(feature = "tracing")]
                 tracing::Span::current().record("poll_attempts", poll_attempts);
                 return Ok(result);
             }
@@ -340,6 +423,7 @@ impl ImapEmailClient {
     async fn connect_inner(config: &ImapConfig) -> Result<(ImapSession, u32)> {
         let mut session = Self::initialize_session(config).await?;
         let start_uid = Self::get_initial_uid(&mut session, config).await?;
+        #[cfg(feature = "tracing")]
         debug!(target: "email.imap", start_uid, "Client connected and ready");
         Ok((session, start_uid))
     }
@@ -361,6 +445,7 @@ impl ImapEmailClient {
             timeout: timeouts.connect,
         })??;
 
+        #[cfg(feature = "tracing")]
         debug!(target: "email.imap", "TLS connection established");
 
         // Authenticate
@@ -379,6 +464,7 @@ impl ImapEmailClient {
             timeout: timeouts.auth,
         })??;
 
+        #[cfg(feature = "tracing")]
         debug!(target: "email.imap", "Authenticated");
 
         // Select INBOX
@@ -392,6 +478,7 @@ impl ImapEmailClient {
             timeout: timeouts.select,
         })??;
 
+        #[cfg(feature = "tracing")]
         debug!(target: "email.imap", "Selected INBOX");
 
         Ok(session)
@@ -460,11 +547,19 @@ impl ImapEmailClient {
     }
 
     /// Checks for new emails and searches for matching content.
-    #[instrument(
-        name = "check_new_emails",
-        target = "email.imap",
-        skip(self, matcher),
-        fields(start_uid = self.start_uid, latest_uid, new_uid_count)
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(
+            name = "check_new_emails",
+            target = "email.imap",
+            skip(self, matcher),
+            fields(
+                start_uid = self.start_uid,
+                latest_uid,
+                new_uid_count,
+                outcome = tracing::field::Empty
+            )
+        )
     )]
     async fn check_new_emails(&mut self, matcher: &dyn Matcher) -> Result<Option<String>> {
         let result = async {
@@ -474,12 +569,15 @@ impl ImapEmailClient {
                 tokio::time::timeout(timeout, session::get_latest_uid(&mut self.session))
                     .await
                     .map_err(|_| Error::UidFetchTimeout { timeout })??;
+            #[cfg(feature = "tracing")]
             let new_uid_count = latest_uid.saturating_sub(self.start_uid);
-            let span = tracing::Span::current();
 
-            span.record("latest_uid", latest_uid);
-            span.record("new_uid_count", new_uid_count);
+            #[cfg(feature = "tracing")]
+            tracing::Span::current()
+                .record("latest_uid", latest_uid)
+                .record("new_uid_count", new_uid_count);
 
+            #[cfg(feature = "tracing")]
             debug!(
                 target: "email.imap",
                 latest_uid,
@@ -498,16 +596,40 @@ impl ImapEmailClient {
         }
         .await;
 
-        crate::otel::set_span_status(&result);
+        #[cfg(feature = "tracing")]
+        match &result {
+            Ok(Some(_)) => {
+                tracing::Span::current().record("outcome", "match_found");
+                crate::otel::set_span_ok();
+            }
+            Ok(None) => {
+                tracing::Span::current().record("outcome", "no_new_emails");
+                crate::otel::set_span_ok();
+            }
+            Err(e) => {
+                tracing::Span::current().record("outcome", "error");
+                crate::otel::set_span_error(e);
+            }
+        }
+
         result
     }
 
     /// Searches through new emails for matching pattern.
-    #[instrument(
-        name = "search_new_emails",
-        target = "email.imap",
-        skip(self, matcher),
-        fields(latest_uid, start_uid = self.start_uid, new_uid_count, uid_range)
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(
+            name = "search_new_emails",
+            target = "email.imap",
+            skip(self, matcher),
+            fields(
+                latest_uid,
+                start_uid = self.start_uid,
+                new_uid_count,
+                uid_range,
+                outcome = tracing::field::Empty
+            )
+        )
     )]
     async fn search_new_emails(
         &mut self,
@@ -517,11 +639,13 @@ impl ImapEmailClient {
         let result = async {
             let fetch_timeout = self.config.timeouts.message_fetch;
             let uid_range = format!("{}:{}", self.start_uid + 1, latest_uid);
+            #[cfg(feature = "tracing")]
             let new_uid_count = latest_uid.saturating_sub(self.start_uid);
-            let span = tracing::Span::current();
 
-            span.record("new_uid_count", new_uid_count);
-            span.record("uid_range", tracing::field::display(&uid_range));
+            #[cfg(feature = "tracing")]
+            tracing::Span::current()
+                .record("new_uid_count", new_uid_count)
+                .record("uid_range", tracing::field::display(&uid_range));
 
             let mut fetch_result = tokio::time::timeout(
                 fetch_timeout,
@@ -548,7 +672,22 @@ impl ImapEmailClient {
         }
         .await;
 
-        crate::otel::set_span_status(&result);
+        #[cfg(feature = "tracing")]
+        match &result {
+            Ok(Some(_)) => {
+                tracing::Span::current().record("outcome", "match_found");
+                crate::otel::set_span_ok();
+            }
+            Ok(None) => {
+                tracing::Span::current().record("outcome", "no_match");
+                crate::otel::set_span_ok();
+            }
+            Err(e) => {
+                tracing::Span::current().record("outcome", "error");
+                crate::otel::set_span_error(e);
+            }
+        }
+
         result
     }
 }
@@ -645,39 +784,44 @@ impl Drop for ImapEmailClientGuard {
             let logout_timeout = client.config.timeouts.logout;
 
             // Try to get the current tokio runtime handle
-            match tokio::runtime::Handle::try_current() {
-                Ok(handle) => {
-                    // We're in an async context, spawn the logout task.
-                    // Call session.logout() directly to avoid creating a root span
-                    // (spawned tasks don't inherit the parent span context).
-                    handle.spawn(async move {
-                        match tokio::time::timeout(logout_timeout, client.session.logout()).await {
-                            Ok(Ok(())) => {
-                                debug!(target: "email.imap", "Client logged out successfully");
-                            }
-                            Ok(Err(e)) => {
-                                warn!(target: "email.imap", error = %e, "Client logout failed");
-                            }
-                            Err(_) => warn!(
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                // We're in an async context, spawn the logout task.
+                // Call session.logout() directly to avoid creating a root span
+                // (spawned tasks don't inherit the parent span context).
+                handle.spawn(async move {
+                    match tokio::time::timeout(logout_timeout, client.session.logout()).await {
+                        Ok(Ok(())) => {
+                            #[cfg(feature = "tracing")]
+                            debug!(target: "email.imap", "Client logged out successfully");
+                        }
+                        Ok(Err(e)) => {
+                            #[cfg(feature = "tracing")]
+                            warn!(target: "email.imap", error = %e, "Client logout failed");
+                            #[cfg(not(feature = "tracing"))]
+                            let _ = e;
+                        }
+                        Err(_) => {
+                            #[cfg(feature = "tracing")]
+                            warn!(
                                 target: "email.imap",
                                 timeout_secs = logout_timeout.as_secs(),
                                 "Client logout timed out"
-                            ),
+                            );
                         }
-                    });
-                }
-                Err(_) => {
-                    // No tokio runtime available - we're in a sync context
-                    // Log a warning since we can't perform async logout
-                    warn!(
-                        target: "email.imap",
-                        "ImapEmailClientGuard dropped outside of tokio runtime context. \
-                         Connection will be closed without proper IMAP logout. \
-                         Consider calling .logout().await explicitly before dropping."
-                    );
-                    // The underlying connection will be dropped and closed,
-                    // which is not ideal but acceptable as a fallback
-                }
+                    }
+                });
+            } else {
+                // No tokio runtime available - we're in a sync context
+                // Log a warning since we can't perform async logout
+                #[cfg(feature = "tracing")]
+                warn!(
+                    target: "email.imap",
+                    "ImapEmailClientGuard dropped outside of tokio runtime context. \
+                     Connection will be closed without proper IMAP logout. \
+                     Consider calling .logout().await explicitly before dropping."
+                );
+                // The underlying connection will be dropped and closed,
+                // which is not ideal but acceptable as a fallback
             }
         }
     }

@@ -8,7 +8,8 @@ use async_imap::Session;
 use chrono::NaiveDate;
 use futures::stream::BoxStream;
 use futures::StreamExt;
-use tracing::{debug, instrument};
+#[cfg(feature = "tracing")]
+use tracing::debug;
 
 /// Type alias for IMAP session over TLS.
 pub(crate) type ImapSession = Session<TlsStream>;
@@ -20,19 +21,25 @@ pub(crate) struct AuthConfig<'a> {
 }
 
 /// Authenticates to IMAP server and returns a session.
-#[instrument(
-    name = "authenticate",
-    target = "email.session",
-    skip_all,
-    fields(email = %config.email)
+#[cfg_attr(
+    feature = "tracing",
+    tracing::instrument(
+        name = "authenticate",
+        target = "email.session",
+        skip_all,
+        fields(email = %config.email)
+    )
 )]
 pub(crate) async fn authenticate(
     tls_stream: TlsStream,
     config: &AuthConfig<'_>,
 ) -> Result<ImapSession> {
+    crate::otel::set_client_kind();
+
     let client = async_imap::Client::new(tls_stream);
 
     let result = async {
+        #[cfg(feature = "tracing")]
         debug!(target: "email.session", "Authenticating to IMAP server");
 
         client
@@ -45,14 +52,24 @@ pub(crate) async fn authenticate(
     }
     .await;
 
-    crate::otel::set_span_status(&result);
+    match &result {
+        Ok(_) => crate::otel::set_span_ok(),
+        Err(e) => crate::otel::set_span_error(e),
+    }
+
     result
 }
 
 /// Selects a mailbox (typically "INBOX").
-#[instrument(name = "select", target = "email.session", skip(session), fields(mailbox = %mailbox))]
+#[cfg_attr(
+    feature = "tracing",
+    tracing::instrument(name = "select", target = "email.session", skip(session), fields(mailbox = %mailbox))
+)]
 pub(crate) async fn select_mailbox(session: &mut ImapSession, mailbox: &str) -> Result<()> {
+    crate::otel::set_client_kind();
+
     let result = async {
+        #[cfg(feature = "tracing")]
         debug!(target: "email.session", "Selecting mailbox");
 
         session
@@ -67,18 +84,27 @@ pub(crate) async fn select_mailbox(session: &mut ImapSession, mailbox: &str) -> 
     }
     .await;
 
-    crate::otel::set_span_status(&result);
+    match &result {
+        Ok(()) => crate::otel::set_span_ok(),
+        Err(e) => crate::otel::set_span_error(e),
+    }
+
     result
 }
 
 /// Gets the latest UID from the current mailbox.
-#[instrument(
-    name = "get_latest_uid",
-    target = "email.session",
-    skip(session),
-    fields(max_uid, uid_count)
+#[cfg_attr(
+    feature = "tracing",
+    tracing::instrument(
+        name = "get_latest_uid",
+        target = "email.session",
+        skip(session),
+        fields(max_uid, uid_count)
+    )
 )]
 pub(crate) async fn get_latest_uid(session: &mut ImapSession) -> Result<u32> {
+    crate::otel::set_client_kind();
+
     let result = async {
         // NOOP to ensure we have latest state
         session
@@ -92,33 +118,45 @@ pub(crate) async fn get_latest_uid(session: &mut ImapSession) -> Result<u32> {
             .map_err(|source| Error::ImapSearch { source })?;
 
         let max_uid = uids.iter().max().copied().unwrap_or(0);
-        let span = tracing::Span::current();
+        #[cfg(feature = "tracing")]
         let uid_count = uids.len() as u64;
 
-        span.record("max_uid", max_uid);
-        span.record("uid_count", uid_count);
+        #[cfg(feature = "tracing")]
+        tracing::Span::current()
+            .record("max_uid", max_uid)
+            .record("uid_count", uid_count);
 
+        #[cfg(feature = "tracing")]
         debug!(target: "email.session", max_uid, uid_count, "Retrieved latest UID");
 
         Ok(max_uid)
     }
     .await;
 
-    crate::otel::set_span_status(&result);
+    match &result {
+        Ok(_) => crate::otel::set_span_ok(),
+        Err(e) => crate::otel::set_span_error(e),
+    }
+
     result
 }
 
 /// Searches for email UIDs since a given date.
-#[instrument(
-    name = "search_since",
-    target = "email.session",
-    skip(session),
-    fields(since_date = %since_date, uid_count)
+#[cfg_attr(
+    feature = "tracing",
+    tracing::instrument(
+        name = "search_since",
+        target = "email.session",
+        skip(session),
+        fields(since_date = %since_date, uid_count)
+    )
 )]
 pub(crate) async fn search_emails_since(
     session: &mut ImapSession,
     since_date: NaiveDate,
 ) -> Result<Vec<u32>> {
+    crate::otel::set_client_kind();
+
     let result = async {
         // NOOP to ensure we have latest state
         session
@@ -136,10 +174,13 @@ pub(crate) async fn search_emails_since(
             .map_err(|source| Error::ImapSearch { source })?;
 
         let uids_vec: Vec<u32> = uids.into_iter().collect();
+        #[cfg(feature = "tracing")]
         let uid_count = uids_vec.len() as u64;
 
+        #[cfg(feature = "tracing")]
         tracing::Span::current().record("uid_count", uid_count);
 
+        #[cfg(feature = "tracing")]
         debug!(
             target: "email.session",
             uid_count,
@@ -151,7 +192,11 @@ pub(crate) async fn search_emails_since(
     }
     .await;
 
-    crate::otel::set_span_status(&result);
+    match &result {
+        Ok(_) => crate::otel::set_span_ok(),
+        Err(e) => crate::otel::set_span_error(e),
+    }
+
     result
 }
 
@@ -163,6 +208,7 @@ pub(crate) async fn fetch_messages_by_uid_range<'a>(
     uid_range: &str,
 ) -> Result<BoxStream<'a, std::result::Result<async_imap::types::Fetch, async_imap::error::Error>>>
 {
+    #[cfg(feature = "tracing")]
     debug!(target: "email.session", uid_range = %uid_range, "Fetching messages");
 
     let stream = session
@@ -177,9 +223,15 @@ pub(crate) async fn fetch_messages_by_uid_range<'a>(
 }
 
 /// Logs out from IMAP session.
-#[instrument(name = "logout", target = "email.session", skip(session))]
+#[cfg_attr(
+    feature = "tracing",
+    tracing::instrument(name = "logout", target = "email.session", skip(session))
+)]
 pub(crate) async fn logout(session: &mut ImapSession) -> Result<()> {
+    crate::otel::set_client_kind();
+
     let result = async {
+        #[cfg(feature = "tracing")]
         debug!(target: "email.session", "Logging out");
 
         session
@@ -191,6 +243,10 @@ pub(crate) async fn logout(session: &mut ImapSession) -> Result<()> {
     }
     .await;
 
-    crate::otel::set_span_status(&result);
+    match &result {
+        Ok(()) => crate::otel::set_span_ok(),
+        Err(e) => crate::otel::set_span_error(e),
+    }
+
     result
 }

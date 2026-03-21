@@ -9,8 +9,8 @@
 //!
 //! ## Features
 //!
-//! - **`tracing`**: Enables OpenTelemetry integration for distributed tracing.
-//!   Without this feature, tracing spans are still emitted but require no OTEL dependencies.
+//! - **`tracing`**: Enables tracing instrumentation with OpenTelemetry support
+//!   (enabled by default).
 //!
 //! ## Quick Start
 //!
@@ -116,7 +116,8 @@
 //!
 //! ## Tracing
 //!
-//! The crate uses `tracing` for instrumentation. All spans use explicit `target`
+//! When the `tracing` feature is enabled, the crate uses `tracing` instrumentation.
+//! All spans use explicit `target`
 //! with dot-separated namespaces so consumers can filter at any granularity.
 //!
 //! ### Span Targets and Names
@@ -156,7 +157,7 @@
 //! - `matcher` - Matcher description
 //! - `uid` - Email UID
 //!
-//! Enable the `tracing` feature for OpenTelemetry span status reporting.
+//! Disable default features if you want to build without tracing instrumentation.
 
 #![warn(missing_docs)]
 #![warn(clippy::all)]
