@@ -52,7 +52,7 @@ email_address = "0.2"
 tracing = { version = "0.1", optional = true }
 
 # Observability (optional)
-tracing-opentelemetry = { version = "0.31", optional = true }
+tracing-opentelemetry = { version = "0.32", optional = true }
 opentelemetry = { version = "0.30", optional = true }
 
 [dev-dependencies]
